@@ -1,0 +1,20 @@
+{
+  "name": "8004agent-backend",
+  "version": "1.0.0",
+  "description": "Backend API for 8004agent CLI - secrets and relayer",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@privy-io/server-auth": "^1.32.5",
+    "axios": "^1.13.4",
+    "dotenv": "^17.2.4",
+    "ethers": "^6.16.0",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "@google/generative-ai": "^0.24.1"
+  }
+}
