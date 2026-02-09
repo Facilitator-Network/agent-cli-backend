@@ -24,7 +24,6 @@ router.post('/create-wallet', async (req, res) => {
     const user = await privy.importUser({
       linkedAccounts: [{ type: 'email', address: syntheticEmail }],
       createEthereumWallet: true,
-      createEthereumSmartWallet: true,
     });
 
     return res.json({

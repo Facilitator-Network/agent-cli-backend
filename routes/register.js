@@ -16,7 +16,7 @@ router.post('/', async (req, res) => {
   if (!RELAYER_PRIVATE_KEY) {
     return res.status(503).json({ error: 'Relayer not configured' });
   }
-  const { agentUrl, networkKey, ownerAddress } = req.body;
+  const { agentUrl, networkKey, ownerAddress, metadata, deferTransfer } = req.body;
   if (!agentUrl || !networkKey) {
     return res.status(400).json({ error: 'agentUrl and networkKey required' });
   }
@@ -32,7 +32,16 @@ router.post('/', async (req, res) => {
     const registry = new ethers.Contract(netConfig.identityRegistry, IdentityRegistryABI, signer);
     const relayerAddress = await signer.getAddress();
 
-    const tx = await registry['register(string)'](agentUrl);
+    let tx;
+    if (metadata && metadata.length > 0) {
+      const metadataArgs = metadata.map(m => [
+        m.key,
+        ethers.hexlify(ethers.toUtf8Bytes(m.value)),
+      ]);
+      tx = await registry['register(string,(string,bytes)[])'](agentUrl, metadataArgs);
+    } else {
+      tx = await registry['register(string)'](agentUrl);
+    }
     const receipt = await tx.wait();
 
     let agentId = null;
@@ -50,12 +59,42 @@ router.post('/', async (req, res) => {
       return res.status(500).json({ error: 'Could not parse Agent ID from logs' });
     }
 
-    if (ownerAddress && ethers.isAddress(ownerAddress) && ownerAddress.toLowerCase() !== relayerAddress.toLowerCase()) {
+    // Only transfer NFT if not deferred
+    if (!deferTransfer && ownerAddress && ethers.isAddress(ownerAddress) && ownerAddress.toLowerCase() !== relayerAddress.toLowerCase()) {
       const transferTx = await registry.transferFrom(relayerAddress, ownerAddress, agentId);
       await transferTx.wait();
     }
 
     return res.json({ agentId, txHash: receipt.hash });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Transfer NFT to owner (used after deferred registration)
+router.post('/transfer', async (req, res) => {
+  if (!RELAYER_PRIVATE_KEY) {
+    return res.status(503).json({ error: 'Relayer not configured' });
+  }
+  const { agentId, ownerAddress, networkKey } = req.body;
+  if (agentId == null || !ownerAddress || !networkKey) {
+    return res.status(400).json({ error: 'agentId, ownerAddress, networkKey required' });
+  }
+
+  const netConfig = CONTRACTS[networkKey];
+  if (!netConfig) {
+    return res.status(400).json({ error: `Unknown network: ${networkKey}` });
+  }
+
+  try {
+    const provider = getProvider(netConfig.rpc);
+    const signer = getSigner(RELAYER_PRIVATE_KEY, provider);
+    const registry = new ethers.Contract(netConfig.identityRegistry, IdentityRegistryABI, signer);
+    const relayerAddress = await signer.getAddress();
+
+    const tx = await registry.transferFrom(relayerAddress, ownerAddress, agentId);
+    const receipt = await tx.wait();
+    return res.json({ txHash: receipt.hash });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }

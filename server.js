@@ -8,6 +8,7 @@ import deployRoutes from './routes/deploy.js';
 import registerRoutes from './routes/register.js';
 import agentWalletRoutes from './routes/agentWallet.js';
 import setAgentWalletRoutes from './routes/setAgentWallet.js';
+import metadataRoutes from './routes/metadata.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -36,6 +37,7 @@ app.use('/api/deploy', deployRoutes);
 app.use('/api/register', registerRoutes);
 app.use('/api/agent-wallet', agentWalletRoutes);
 app.use('/api/identity', setAgentWalletRoutes);
+app.use('/api/metadata', metadataRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: '8004agent-backend' });
