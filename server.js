@@ -11,6 +11,7 @@ import registerRoutes from './routes/register.js';
 import setAgentWalletRoutes from './routes/setAgentWallet.js';
 import metadataRoutes from './routes/metadata.js';
 import sessionRoutes from './routes/session.js';
+import agentsRoutes from './routes/agents.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -42,6 +43,7 @@ app.use('/api/register', registerRoutes);
 app.use('/api/identity', setAgentWalletRoutes);
 app.use('/api/metadata', metadataRoutes);
 app.use('/api/session', sessionRoutes);
+app.use('/api/agents', agentsRoutes);
 
 // Serve browser signing page
 app.get('/sign/:sessionId', (_req, res) => {
