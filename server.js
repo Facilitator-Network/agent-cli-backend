@@ -12,6 +12,7 @@ import setAgentWalletRoutes from './routes/setAgentWallet.js';
 import metadataRoutes from './routes/metadata.js';
 import sessionRoutes from './routes/session.js';
 import agentsRoutes from './routes/agents.js';
+import nftRoutes from './routes/nft.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -44,6 +45,7 @@ app.use('/api/identity', setAgentWalletRoutes);
 app.use('/api/metadata', metadataRoutes);
 app.use('/api/session', sessionRoutes);
 app.use('/api/agents', agentsRoutes);
+app.use('/api/nft', nftRoutes);
 
 // Serve browser signing page
 app.get('/sign/:sessionId', (_req, res) => {

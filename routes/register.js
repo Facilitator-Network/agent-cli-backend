@@ -59,6 +59,18 @@ router.post('/', async (req, res) => {
       return res.status(500).json({ error: 'Could not parse Agent ID from logs' });
     }
 
+    // Update tokenURI to point to our NFT metadata endpoint
+    try {
+      const proto = req.headers['x-forwarded-proto'] || req.protocol;
+      const host = req.headers['x-forwarded-host'] || req.get('host');
+      const baseUrl = `${proto}://${host}`;
+      const metadataUrl = `${baseUrl}/api/nft/${netConfig.chainId}/${agentId}`;
+      const uriTx = await registry.setAgentURI(agentId, metadataUrl);
+      await uriTx.wait();
+    } catch (e) {
+      console.warn(`Warning: setAgentURI failed for agent ${agentId}: ${e.message}`);
+    }
+
     // Only transfer NFT if not deferred
     if (!deferTransfer && ownerAddress && ethers.isAddress(ownerAddress) && ownerAddress.toLowerCase() !== relayerAddress.toLowerCase()) {
       const transferTx = await registry.transferFrom(relayerAddress, ownerAddress, agentId);
