@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>8004AGENT - Sign Transaction</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .container {
+    max-width: 520px;
+    width: 100%;
+    padding: 24px;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .header h1 {
+    font-size: 28px;
+    color: #00e5ff;
+    letter-spacing: 2px;
+  }
+  .header p {
+    color: #666;
+    font-size: 13px;
+    margin-top: 6px;
+  }
+  .card {
+    background: #13131a;
+    border: 1px solid #222;
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 16px;
+  }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #444;
+  }
+  .dot.connected { background: #00e676; }
+  .dot.pending { background: #ffa726; animation: pulse 1.5s infinite; }
+  .dot.done { background: #00e676; }
+  .status-text { font-size: 14px; color: #aaa; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .btn {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-primary {
+    background: #00e5ff;
+    color: #0a0a0f;
+  }
+  .btn-primary:hover { background: #00b8d4; }
+  .btn-sign {
+    background: #7c4dff;
+    color: #fff;
+  }
+  .btn-sign:hover { background: #651fff; }
+  .btn:disabled {
+    background: #333;
+    color: #666;
+    cursor: not-allowed;
+  }
+  .wallet-addr {
+    font-size: 13px;
+    color: #00e676;
+    word-break: break-all;
+    margin-top: 8px;
+  }
+  .request-label {
+    font-size: 16px;
+    color: #ffa726;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .request-detail {
+    font-size: 12px;
+    color: #666;
+    background: #0a0a0f;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 16px;
+    max-height: 160px;
+    overflow-y: auto;
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
+  .msg {
+    text-align: center;
+    color: #666;
+    font-size: 13px;
+    padding: 20px 0;
+  }
+  .msg.success { color: #00e676; }
+  .msg.error { color: #ff5252; }
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid #444;
+    border-top-color: #00e5ff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>8004AGENT</h1>
+    <p>Browser Signing Portal</p>
+  </div>
+
+  <!-- Step 1: Connect Wallet -->
+  <div id="step-connect" class="card">
+    <div class="status">
+      <div class="dot" id="connect-dot"></div>
+      <span class="status-text" id="connect-status">Wallet not connected</span>
+    </div>
+    <button class="btn btn-primary" id="btn-connect" onclick="connectWallet()">
+      Connect Wallet
+    </button>
+    <div class="wallet-addr" id="wallet-display" style="display:none"></div>
+  </div>
+
+  <!-- Step 2: Signing area -->
+  <div id="step-sign" class="card" style="display:none">
+    <div id="sign-waiting" class="msg">
+      <span class="spinner"></span> Waiting for signing request from CLI...
+    </div>
+    <div id="sign-request" style="display:none">
+      <div class="request-label" id="request-label"></div>
+      <div class="request-detail" id="request-detail"></div>
+      <button class="btn btn-sign" id="btn-sign" onclick="signRequest()">
+        Sign in Wallet
+      </button>
+    </div>
+    <div id="sign-success" class="msg success" style="display:none">
+      Signature sent! Waiting for next request...
+    </div>
+  </div>
+
+  <!-- Done -->
+  <div id="step-done" class="card" style="display:none">
+    <div class="msg success">
+      All done! You can close this tab and return to your terminal.
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div id="error-box" class="msg error" style="display:none"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+const sessionId = window.location.pathname.split('/sign/')[1];
+const API_BASE = window.location.origin + '/api/session/' + sessionId;
+
+let provider = null;
+let signer = null;
+let currentRequestId = null;
+let pollInterval = null;
+let lastSignedRequestId = null;
+
+function showError(msg) {
+  const el = document.getElementById('error-box');
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 5000);
+}
+
+async function connectWallet() {
+  try {
+    if (!window.ethereum) {
+      showError('MetaMask not found. Please install MetaMask.');
+      return;
+    }
+    const btn = document.getElementById('btn-connect');
+    btn.disabled = true;
+    btn.textContent = 'Connecting...';
+
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer = await provider.getSigner();
+    const address = await signer.getAddress();
+
+    // Send wallet address to backend
+    const res = await fetch(API_BASE + '/wallet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ walletAddress: address }),
+    });
+    if (!res.ok) throw new Error('Failed to register wallet');
+
+    // Update UI
+    document.getElementById('connect-dot').classList.add('connected');
+    document.getElementById('connect-status').textContent = 'Wallet connected';
+    btn.style.display = 'none';
+    const display = document.getElementById('wallet-display');
+    display.textContent = address;
+    display.style.display = 'block';
+
+    // Show signing area and start polling
+    document.getElementById('step-sign').style.display = 'block';
+    startPolling();
+  } catch (e) {
+    showError(e.message || 'Failed to connect wallet');
+    const btn = document.getElementById('btn-connect');
+    btn.disabled = false;
+    btn.textContent = 'Connect Wallet';
+  }
+}
+
+function startPolling() {
+  pollInterval = setInterval(pollSession, 2000);
+}
+
+async function pollSession() {
+  try {
+    const res = await fetch(API_BASE);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data.completed) {
+      clearInterval(pollInterval);
+      document.getElementById('step-sign').style.display = 'none';
+      document.getElementById('step-done').style.display = 'block';
+      return;
+    }
+
+    if (data.currentRequest && data.currentRequest.id !== lastSignedRequestId) {
+      currentRequestId = data.currentRequest.id;
+      showSignRequest(data.currentRequest);
+    } else if (!data.currentRequest && lastSignedRequestId) {
+      // Request was consumed, show waiting
+      document.getElementById('sign-request').style.display = 'none';
+      document.getElementById('sign-success').style.display = 'block';
+      document.getElementById('sign-waiting').style.display = 'none';
+    }
+  } catch (e) {
+    // Silent polling error
+  }
+}
+
+function showSignRequest(request) {
+  document.getElementById('sign-waiting').style.display = 'none';
+  document.getElementById('sign-success').style.display = 'none';
+  document.getElementById('sign-request').style.display = 'block';
+
+  document.getElementById('request-label').textContent = request.label;
+
+  const detail = request.eip712;
+  const summary = JSON.stringify(detail.message, null, 2);
+  document.getElementById('request-detail').textContent = summary;
+
+  document.getElementById('btn-sign').disabled = false;
+  document.getElementById('btn-sign').textContent = 'Sign in Wallet';
+}
+
+async function signRequest() {
+  try {
+    const btn = document.getElementById('btn-sign');
+    btn.disabled = true;
+    btn.textContent = 'Signing...';
+
+    // Fetch current request data
+    const res = await fetch(API_BASE);
+    const data = await res.json();
+    if (!data.currentRequest) {
+      showError('No pending request');
+      return;
+    }
+
+    const { domain, types, primaryType, message } = data.currentRequest.eip712;
+
+    // Remove EIP712Domain from types if present (ethers handles it)
+    const cleanTypes = { ...types };
+    delete cleanTypes.EIP712Domain;
+
+    // Sign using ethers
+    const signature = await signer.signTypedData(domain, cleanTypes, message);
+
+    // Send signature to backend
+    const postRes = await fetch(API_BASE + '/signature', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId: currentRequestId, signature }),
+    });
+    if (!postRes.ok) throw new Error('Failed to submit signature');
+
+    lastSignedRequestId = currentRequestId;
+    document.getElementById('sign-request').style.display = 'none';
+    document.getElementById('sign-success').style.display = 'block';
+  } catch (e) {
+    showError(e.message || 'Signing failed');
+    const btn = document.getElementById('btn-sign');
+    btn.disabled = false;
+    btn.textContent = 'Sign in Wallet';
+  }
+}
+
+// Check session exists on page load
+(async () => {
+  try {
+    const res = await fetch(API_BASE);
+    if (!res.ok) {
+      showError('Session not found or expired. Please start a new session from the CLI.');
+      document.getElementById('btn-connect').disabled = true;
+    }
+  } catch (e) {
+    showError('Cannot connect to server.');
+  }
+})();
+</script>
+</body>
+</html>

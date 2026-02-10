@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
 import privyRoutes from './routes/privy.js';
 import aiRoutes from './routes/ai.js';
@@ -8,6 +10,9 @@ import deployRoutes from './routes/deploy.js';
 import registerRoutes from './routes/register.js';
 import setAgentWalletRoutes from './routes/setAgentWallet.js';
 import metadataRoutes from './routes/metadata.js';
+import sessionRoutes from './routes/session.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -36,6 +41,12 @@ app.use('/api/deploy', deployRoutes);
 app.use('/api/register', registerRoutes);
 app.use('/api/identity', setAgentWalletRoutes);
 app.use('/api/metadata', metadataRoutes);
+app.use('/api/session', sessionRoutes);
+
+// Serve browser signing page
+app.get('/sign/:sessionId', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'sign.html'));
+});
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: '8004agent-backend' });
