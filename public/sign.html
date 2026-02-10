@@ -92,6 +92,21 @@
     word-break: break-all;
     margin-top: 8px;
   }
+  .btn-reconnect {
+    background: transparent;
+    border: 1px solid #ffa726;
+    color: #ffa726;
+    margin-top: 10px;
+    padding: 10px;
+    font-size: 13px;
+  }
+  .btn-reconnect:hover { background: rgba(255,167,38,0.1); }
+  .wallet-mismatch {
+    color: #ff5252;
+    font-size: 12px;
+    margin-top: 6px;
+    display: none;
+  }
   .request-label {
     font-size: 16px;
     color: #ffa726;
@@ -148,6 +163,10 @@
       Connect Wallet
     </button>
     <div class="wallet-addr" id="wallet-display" style="display:none"></div>
+    <div class="wallet-mismatch" id="wallet-mismatch"></div>
+    <button class="btn btn-reconnect" id="btn-reconnect" style="display:none" onclick="reconnectWallet()">
+      Switch / Reconnect Wallet
+    </button>
   </div>
 
   <!-- Step 2: Signing area -->
@@ -185,6 +204,7 @@ const API_BASE = window.location.origin + '/api/session/' + sessionId;
 
 let provider = null;
 let signer = null;
+let connectedAddress = null;
 let currentRequestId = null;
 let pollInterval = null;
 let lastSignedRequestId = null;
@@ -194,6 +214,23 @@ function showError(msg) {
   el.textContent = msg;
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 5000);
+}
+
+async function updateWalletOnBackend(address) {
+  const res = await fetch(API_BASE + '/wallet', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ walletAddress: address }),
+  });
+  if (!res.ok) throw new Error('Failed to update wallet');
+}
+
+function updateWalletUI(address) {
+  connectedAddress = address;
+  const display = document.getElementById('wallet-display');
+  display.textContent = address;
+  display.style.display = 'block';
+  document.getElementById('wallet-mismatch').style.display = 'none';
 }
 
 async function connectWallet() {
@@ -206,25 +243,24 @@ async function connectWallet() {
     btn.disabled = true;
     btn.textContent = 'Connecting...';
 
+    // Request account access — MetaMask will show account picker
+    await window.ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
+
     provider = new ethers.BrowserProvider(window.ethereum);
     signer = await provider.getSigner();
     const address = await signer.getAddress();
 
-    // Send wallet address to backend
-    const res = await fetch(API_BASE + '/wallet', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ walletAddress: address }),
-    });
-    if (!res.ok) throw new Error('Failed to register wallet');
+    await updateWalletOnBackend(address);
+    updateWalletUI(address);
 
     // Update UI
     document.getElementById('connect-dot').classList.add('connected');
     document.getElementById('connect-status').textContent = 'Wallet connected';
     btn.style.display = 'none';
-    const display = document.getElementById('wallet-display');
-    display.textContent = address;
-    display.style.display = 'block';
+    document.getElementById('btn-reconnect').style.display = 'block';
+
+    // Listen for account changes
+    window.ethereum.on('accountsChanged', handleAccountsChanged);
 
     // Show signing area and start polling
     document.getElementById('step-sign').style.display = 'block';
@@ -234,6 +270,35 @@ async function connectWallet() {
     const btn = document.getElementById('btn-connect');
     btn.disabled = false;
     btn.textContent = 'Connect Wallet';
+  }
+}
+
+async function reconnectWallet() {
+  try {
+    // Force MetaMask to show account picker again
+    await window.ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer = await provider.getSigner();
+    const address = await signer.getAddress();
+    await updateWalletOnBackend(address);
+    updateWalletUI(address);
+    document.getElementById('connect-status').textContent = 'Wallet connected';
+  } catch (e) {
+    showError(e.message || 'Failed to reconnect wallet');
+  }
+}
+
+async function handleAccountsChanged(accounts) {
+  if (!accounts || accounts.length === 0) return;
+  try {
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer = await provider.getSigner();
+    const address = await signer.getAddress();
+    await updateWalletOnBackend(address);
+    updateWalletUI(address);
+    document.getElementById('connect-status').textContent = 'Wallet connected';
+  } catch (e) {
+    showError('Failed to update after account switch');
   }
 }
 
@@ -289,6 +354,11 @@ async function signRequest() {
     btn.disabled = true;
     btn.textContent = 'Signing...';
 
+    // Re-get current signer to handle account switches
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer = await provider.getSigner();
+    const currentAddr = (await signer.getAddress()).toLowerCase();
+
     // Fetch current request data
     const res = await fetch(API_BASE);
     const data = await res.json();
@@ -298,6 +368,17 @@ async function signRequest() {
     }
 
     const { domain, types, primaryType, message } = data.currentRequest.eip712;
+
+    // Verify active wallet matches the "from" field in the message (if present)
+    if (message.from && currentAddr !== message.from.toLowerCase()) {
+      const short = message.from.slice(0, 6) + '...' + message.from.slice(-4);
+      const mismatchEl = document.getElementById('wallet-mismatch');
+      mismatchEl.textContent = 'Wrong wallet! This request requires ' + short + '. Switch in MetaMask or click "Switch / Reconnect Wallet".';
+      mismatchEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Sign in Wallet';
+      return;
+    }
 
     // Remove EIP712Domain from types if present (ethers handles it)
     const cleanTypes = { ...types };
@@ -317,6 +398,7 @@ async function signRequest() {
     lastSignedRequestId = currentRequestId;
     document.getElementById('sign-request').style.display = 'none';
     document.getElementById('sign-success').style.display = 'block';
+    document.getElementById('wallet-mismatch').style.display = 'none';
   } catch (e) {
     showError(e.message || 'Signing failed');
     const btn = document.getElementById('btn-sign');
