@@ -243,8 +243,13 @@ async function connectWallet() {
     btn.disabled = true;
     btn.textContent = 'Connecting...';
 
-    // Request account access
-    await window.ethereum.request({ method: 'eth_requestAccounts' });
+    // Force wallet picker so user always chooses which account to connect
+    try {
+      await window.ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
+    } catch (_) {
+      // Fallback for wallets that don't support wallet_requestPermissions
+      await window.ethereum.request({ method: 'eth_requestAccounts' });
+    }
 
     provider = new ethers.BrowserProvider(window.ethereum);
     signer = await provider.getSigner();

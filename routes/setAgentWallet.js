@@ -78,13 +78,15 @@ router.post('/relayer', async (req, res) => {
       ],
     };
 
-    const deadline = Math.floor(Date.now() / 1000) + 300; // 5 min
+    // Use on-chain block timestamp to avoid clock drift issues
+    const block = await provider.getBlock('latest');
+    const deadline = block.timestamp + 60; // 60 seconds from current block
 
     // Relayer signs as current owner
     const signature = await relayerWallet.signTypedData(domain, types, {
       agentId: BigInt(agentId),
       newWallet: agentWalletAddress,
-      deadline,
+      deadline: BigInt(deadline),
     });
 
     // Submit the transaction
