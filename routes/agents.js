@@ -11,7 +11,7 @@ router.post('/', async (req, res) => {
     agentId, name, url, imageUrl, description, version, author, license,
     mcpEndpoint, a2aEndpoint, skills, domains, metadataStorage, trustModels,
     x402Payment, status, hirePrice, network, ownerAddress, registrationTx,
-    registeredAt,
+    registeredAt, agentWalletAddress,
   } = req.body;
 
   if (!agentId || !network || !name) {
@@ -43,6 +43,7 @@ router.post('/', async (req, res) => {
       ownerAddress: ownerAddress || '',
       registrationTx: registrationTx || '',
       registeredAt: registeredAt || new Date().toISOString(),
+      agentWalletAddress: agentWalletAddress || '',
     });
 
     await redis.zadd('platform:agents', {
