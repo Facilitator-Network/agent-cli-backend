@@ -243,8 +243,8 @@ async function connectWallet() {
     btn.disabled = true;
     btn.textContent = 'Connecting...';
 
-    // Request account access — MetaMask will show account picker
-    await window.ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
+    // Request account access
+    await window.ethereum.request({ method: 'eth_requestAccounts' });
 
     provider = new ethers.BrowserProvider(window.ethereum);
     signer = await provider.getSigner();
@@ -259,8 +259,12 @@ async function connectWallet() {
     btn.style.display = 'none';
     document.getElementById('btn-reconnect').style.display = 'block';
 
-    // Listen for account changes
-    window.ethereum.on('accountsChanged', handleAccountsChanged);
+    // Listen for account changes (safe — some wallets don't support this)
+    try {
+      if (window.ethereum.on) {
+        window.ethereum.on('accountsChanged', handleAccountsChanged);
+      }
+    } catch (_) { /* ignore */ }
 
     // Show signing area and start polling
     document.getElementById('step-sign').style.display = 'block';
@@ -275,8 +279,12 @@ async function connectWallet() {
 
 async function reconnectWallet() {
   try {
-    // Force MetaMask to show account picker again
-    await window.ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
+    // Try to show account picker; fall back to basic request
+    try {
+      await window.ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
+    } catch (_) {
+      await window.ethereum.request({ method: 'eth_requestAccounts' });
+    }
     provider = new ethers.BrowserProvider(window.ethereum);
     signer = await provider.getSigner();
     const address = await signer.getAddress();
@@ -297,9 +305,7 @@ async function handleAccountsChanged(accounts) {
     await updateWalletOnBackend(address);
     updateWalletUI(address);
     document.getElementById('connect-status').textContent = 'Wallet connected';
-  } catch (e) {
-    showError('Failed to update after account switch');
-  }
+  } catch (_) { /* ignore */ }
 }
 
 function startPolling() {
