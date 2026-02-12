@@ -101,10 +101,14 @@ router.post('/transfer', async (req, res) => {
   try {
     const provider = getProvider(netConfig.rpc);
     const signer = getSigner(RELAYER_PRIVATE_KEY, provider);
-    const registry = new ethers.Contract(netConfig.identityRegistry, IdentityRegistryABI, signer);
     const relayerAddress = await signer.getAddress();
 
-    const tx = await registry.transferFrom(relayerAddress, ownerAddress, agentId);
+    // Use 'pending' so we get the next nonce after any just-confirmed register/setAgentURI txs.
+    // Otherwise we can get "nonce too low" if the node's 'latest' view hasn't updated yet.
+    const nonce = await provider.getTransactionCount(relayerAddress, 'pending');
+
+    const registry = new ethers.Contract(netConfig.identityRegistry, IdentityRegistryABI, signer);
+    const tx = await registry.transferFrom(relayerAddress, ownerAddress, agentId, { nonce });
     const receipt = await tx.wait();
     return res.json({ txHash: receipt.hash });
   } catch (e) {
