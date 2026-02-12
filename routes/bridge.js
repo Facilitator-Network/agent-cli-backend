@@ -65,15 +65,28 @@ async function executeBridge(bridgeId) {
     return;
   }
   if (!RELAYER_PRIVATE_KEY) {
-    await redis.hset(`bridge:${bridgeId}`, { status: 'failed', error: 'Relayer not configured' });
+    // bridgeId already includes 'bridge:' prefix, use as-is
+    try {
+      await redis.hset(bridgeId, { status: 'failed', error: 'Relayer not configured' });
+    } catch (_) {}
     return;
   }
 
+  // Small delay to ensure Redis write completes (race condition protection)
+  await new Promise((r) => setTimeout(r, 100));
+
   let data;
   try {
-    data = await redis.hgetall(`bridge:${bridgeId}`);
+    // bridgeId already includes 'bridge:' prefix from initiate endpoint
+    data = await redis.hgetall(bridgeId);
   } catch (e) {
     console.error('[bridge] Failed to read bridge state', bridgeId, e.message);
+    return;
+  }
+
+  // Check if data exists and has content
+  if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
+    console.error('[bridge] Bridge record not found or empty', bridgeId);
     return;
   }
 
@@ -83,8 +96,11 @@ async function executeBridge(bridgeId) {
     finalRecipient,
     purpose,
   } = data;
+  
   if (!sourceChain || amount == null || !finalRecipient) {
-    await redis.hset(`bridge:${bridgeId}`, { status: 'failed', error: 'Missing bridge params' });
+    try {
+      await redis.hset(bridgeId, { status: 'failed', error: 'Missing bridge params' });
+    } catch (_) {}
     return;
   }
 
@@ -94,7 +110,9 @@ async function executeBridge(bridgeId) {
   const fujiDomain = CCTP.fujiDomain;
 
   if (!sourceConfig || !sourceUsdc) {
-    await redis.hset(`bridge:${bridgeId}`, { status: 'failed', error: `Unsupported source chain: ${sourceChain}` });
+    try {
+      await redis.hset(bridgeId, { status: 'failed', error: `Unsupported source chain: ${sourceChain}` });
+    } catch (_) {}
     return;
   }
 
@@ -106,13 +124,13 @@ async function executeBridge(bridgeId) {
 
   try {
     // 1. Approve
-    await redis.hset(`bridge:${bridgeId}`, { status: 'approved' });
+    await redis.hset(bridgeId, { status: 'approved' });
     const usdc = new ethers.Contract(sourceUsdc, ERC20_APPROVE_ABI, relayer);
     const approveTx = await usdc.approve(CCTP.tokenMessenger, amountWei);
     await approveTx.wait();
 
     // 2. Burn (depositForBurn)
-    await redis.hset(`bridge:${bridgeId}`, { status: 'deposited' });
+    await redis.hset(bridgeId, { status: 'deposited' });
     const tokenMessenger = new ethers.Contract(CCTP.tokenMessenger, TOKEN_MESSENGER_ABI, relayer);
     const burnTx = await tokenMessenger.depositForBurn(
       amountWei,
@@ -121,7 +139,7 @@ async function executeBridge(bridgeId) {
       sourceUsdc
     );
     const burnReceipt = await burnTx.wait();
-    await redis.hset(`bridge:${bridgeId}`, {
+    await redis.hset(bridgeId, {
       status: 'message_sent',
       depositForBurnTx: burnReceipt.hash,
     });
@@ -141,7 +159,7 @@ async function executeBridge(bridgeId) {
       } catch (_) {}
     }
     if (!messageBytes) {
-      await redis.hset(`bridge:${bridgeId}`, {
+      await redis.hset(bridgeId, {
         status: 'failed',
         error: 'Could not find MessageSent event in burn receipt',
       });
@@ -149,19 +167,19 @@ async function executeBridge(bridgeId) {
     }
 
     const messageHash = ethers.keccak256(messageBytes);
-    await redis.hset(`bridge:${bridgeId}`, { messageBytes, messageHash, status: 'polling_attestation' });
+    await redis.hset(bridgeId, { messageBytes, messageHash, status: 'polling_attestation' });
 
     // 4. Poll attestation
     const attestation = await pollAttestation(messageHash);
     if (!attestation) {
-      await redis.hset(`bridge:${bridgeId}`, {
+      await redis.hset(bridgeId, {
         status: 'failed',
         error: 'Attestation timeout (15 min). You can retry receiveMessage later with same messageHash.',
       });
       return;
     }
 
-    await redis.hset(`bridge:${bridgeId}`, { attestation, status: 'attestation_received' });
+    await redis.hset(bridgeId, { attestation, status: 'attestation_received' });
 
     // 5. Mint on Fuji (receiveMessage)
     const fujiProvider = getProvider(fujiConfig.rpc);
@@ -177,17 +195,21 @@ async function executeBridge(bridgeId) {
     const receiveTx = await transmitter.receiveMessage(messageBytes, attestationBytes);
     const receiveReceipt = await receiveTx.wait();
 
-    await redis.hset(`bridge:${bridgeId}`, {
+    await redis.hset(bridgeId, {
       status: 'completed',
       receiveMessageTx: receiveReceipt.hash,
       completedAt: new Date().toISOString(),
     });
   } catch (e) {
     console.error('[bridge] executeBridge error', bridgeId, e.message);
-    await redis.hset(`bridge:${bridgeId}`, {
-      status: 'failed',
-      error: e.message || String(e),
-    });
+    try {
+      await redis.hset(bridgeId, {
+        status: 'failed',
+        error: e.message || String(e),
+      });
+    } catch (redisErr) {
+      console.error('[bridge] Failed to update Redis on error', bridgeId, redisErr.message);
+    }
   }
 }
 
