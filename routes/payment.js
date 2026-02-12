@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { ethers } from 'ethers';
-import { CONTRACTS, RELAYER_PRIVATE_KEY, TREASURY_ADDRESS } from '../lib/constants.js';
+import { CONTRACTS, RELAYER_ADDRESS, RELAYER_PRIVATE_KEY, TREASURY_ADDRESS } from '../lib/constants.js';
 import { USDC_ERC3009_ABI } from '../lib/abi.js';
 
 const router = Router();
@@ -51,10 +51,11 @@ router.post('/submit', async (req, res) => {
   }
 });
 
-// Public config for CLI (no secrets)
+// Public config for CLI (no secrets). relayerAddress used for CCTP (non-Fuji payments).
 router.get('/config', (_req, res) => {
   return res.json({
     treasuryAddress: TREASURY_ADDRESS || null,
+    relayerAddress: RELAYER_ADDRESS || null,
     supportedNetworks: Object.keys(CONTRACTS),
   });
 });

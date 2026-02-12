@@ -128,8 +128,11 @@ router.post('/withdraw', async (req, res) => {
 
   let circleTxId;
   try {
+    // Use walletAddress + blockchain instead of walletId so Circle executes
+    // on AVAX-FUJI regardless of which chain the wallet was originally created on
     const response = await circleClient.createContractExecutionTransaction({
-      walletId: circleWalletId,
+      walletAddress: agentWalletAddress,
+      blockchain: 'AVAX-FUJI',
       contractAddress: usdcAddress,
       abiFunctionSignature: 'transfer(address,uint256)',
       abiParameters: [toAddress, rawAmount],

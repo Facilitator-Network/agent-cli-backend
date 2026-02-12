@@ -56,7 +56,11 @@ router.post('/', async (req, res) => {
     if (ownerAddress) {
       const userKey = `user:${ownerAddress.toLowerCase()}`;
       const existing = await redis.hget(userKey, 'agents');
-      const agentsList = existing ? JSON.parse(existing) : [];
+      let agentsList = [];
+      if (existing) {
+        try { agentsList = JSON.parse(existing); } catch (_) { agentsList = [existing]; }
+        if (!Array.isArray(agentsList)) agentsList = [agentsList];
+      }
       agentsList.push(`${network}:${agentId}`);
       await redis.hset(userKey, {
         agents: JSON.stringify(agentsList),
