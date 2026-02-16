@@ -16,6 +16,7 @@ import agentsRoutes from './routes/agents.js';
 import nftRoutes from './routes/nft.js';
 import circleRoutes from './routes/circle.js';
 import bridgeRoutes from './routes/bridge.js';
+import arenaRoutes from './routes/arena.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,6 +53,7 @@ app.use('/api/agents', agentsRoutes);
 app.use('/api/nft', nftRoutes);
 app.use('/api/circle', circleRoutes);
 app.use('/api/bridge', bridgeRoutes);
+app.use('/api/arena', arenaRoutes);
 
 // Serve browser signing page
 app.get('/sign/:sessionId', (_req, res) => {
