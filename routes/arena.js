@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { ethers } from 'ethers';
 import redis from '../lib/redis.js';
 import crypto from 'crypto';
 
@@ -6,6 +7,16 @@ const router = Router();
 
 const DEFAULT_ELO = 1200;
 const K_FACTOR = 32;
+
+// ---- Helper: verify wallet signature ----
+function verifySig(message, signature, expectedAddress) {
+  try {
+    const recovered = ethers.verifyMessage(message, signature);
+    return recovered.toLowerCase() === expectedAddress.toLowerCase();
+  } catch {
+    return false;
+  }
+}
 
 // ---- Helper: compute new ELO ratings ----
 function computeElo(ratingA, ratingB, scoreA) {
@@ -74,10 +85,18 @@ router.get('/battles/:id', async (req, res) => {
 router.post('/battles', async (req, res) => {
   if (!redis) return res.status(503).json({ error: 'Redis not configured' });
 
-  const { agentA, agentB, prompt, createdBy, durationHours } = req.body;
+  const { agentA, agentB, prompt, createdBy, durationHours, message, signature } = req.body;
 
   if (!agentA || !agentB || !prompt || !createdBy) {
     return res.status(400).json({ error: 'agentA, agentB, prompt, and createdBy are required' });
+  }
+
+  if (!message || !signature) {
+    return res.status(400).json({ error: 'Wallet signature is required' });
+  }
+
+  if (!verifySig(message, signature, createdBy)) {
+    return res.status(401).json({ error: 'Invalid signature — wallet verification failed' });
   }
 
   if (agentA.network === agentB.network && agentA.agentId === agentB.agentId) {
@@ -125,11 +144,19 @@ router.post('/battles', async (req, res) => {
 router.post('/battles/:id/vote', async (req, res) => {
   if (!redis) return res.status(503).json({ error: 'Redis not configured' });
 
-  const { voter, side } = req.body; // side: 'A' or 'B'
+  const { voter, side, message, signature } = req.body; // side: 'A' or 'B'
   const battleId = req.params.id;
 
   if (!voter || !side || !['A', 'B'].includes(side)) {
     return res.status(400).json({ error: 'voter and side (A or B) are required' });
+  }
+
+  if (!message || !signature) {
+    return res.status(400).json({ error: 'Wallet signature is required' });
+  }
+
+  if (!verifySig(message, signature, voter)) {
+    return res.status(401).json({ error: 'Invalid signature — wallet verification failed' });
   }
 
   try {
