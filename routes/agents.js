@@ -3,6 +3,34 @@ import redis from '../lib/redis.js';
 
 const router = Router();
 
+// ---- GET /check → Check if agent name or URL is already taken ----
+router.get('/check', async (req, res) => {
+  if (!redis) return res.status(503).json({ error: 'Marketplace not configured' });
+
+  const { name, url } = req.query;
+
+  try {
+    const result = { nameTaken: false, urlTaken: false };
+
+    if (name) {
+      const nameKey = `index:name:${String(name).toLowerCase().trim()}`;
+      const existing = await redis.get(nameKey);
+      result.nameTaken = !!existing;
+    }
+
+    if (url) {
+      const urlKey = `index:url:${String(url).toLowerCase().trim()}`;
+      const existing = await redis.get(urlKey);
+      result.urlTaken = !!existing;
+    }
+
+    return res.json(result);
+  } catch (e) {
+    console.error('Upstash check error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // ---- POST / → Store agent data after registration ----
 router.post('/', async (req, res) => {
   if (!redis) return res.status(503).json({ error: 'Marketplace not configured (Upstash not set up)' });
@@ -21,6 +49,16 @@ router.post('/', async (req, res) => {
   const agentKey = `agent:${network}:${agentId}`;
 
   try {
+    // Index name and URL for uniqueness (only on first network to avoid duplicates)
+    if (name) {
+      const nameKey = `index:name:${name.toLowerCase().trim()}`;
+      await redis.set(nameKey, `${network}:${agentId}`);
+    }
+    if (url) {
+      const urlKey = `index:url:${url.toLowerCase().trim()}`;
+      await redis.set(urlKey, `${network}:${agentId}`);
+    }
+
     await redis.hset(agentKey, {
       agentId: String(agentId),
       name: name || '',
