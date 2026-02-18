@@ -1,5 +1,7 @@
 import { Router } from 'express';
+import { ethers } from 'ethers';
 import redis from '../lib/redis.js';
+import { CONTRACTS, USDC_ADDRESSES } from '../lib/constants.js';
 
 const router = Router();
 
@@ -134,6 +136,75 @@ router.get('/', async (req, res) => {
     return res.json({ agents });
   } catch (e) {
     console.error('Upstash list error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- GET /hires/:address → Get agents hired by a user (via USDC Transfer events) ----
+router.get('/hires/:address', async (req, res) => {
+  if (!redis) return res.status(503).json({ error: 'Marketplace not configured' });
+
+  const userAddress = req.params.address;
+  if (!ethers.isAddress(userAddress)) {
+    return res.status(400).json({ error: 'Invalid address' });
+  }
+
+  try {
+    const agentKeys = await redis.zrange('platform:agents', 0, -1, { rev: true });
+
+    // Build map of agentWalletAddress → agent data
+    const walletToAgent = {};
+    for (const key of agentKeys) {
+      const data = await redis.hgetall(`agent:${key}`);
+      if (data && data.agentWalletAddress) {
+        walletToAgent[data.agentWalletAddress.toLowerCase()] = data;
+      }
+    }
+
+    if (Object.keys(walletToAgent).length === 0) {
+      return res.json({ hires: [] });
+    }
+
+    // Query USDC Transfer events on Fuji where from = userAddress
+    const fujiRpc = CONTRACTS.fuji?.rpc;
+    const usdcAddress = USDC_ADDRESSES.fuji;
+    if (!fujiRpc || !usdcAddress) {
+      return res.json({ hires: [] });
+    }
+
+    const provider = new ethers.JsonRpcProvider(fujiRpc);
+    const usdc = new ethers.Contract(usdcAddress, [
+      'event Transfer(address indexed from, address indexed to, uint256 value)',
+    ], provider);
+
+    const filter = usdc.filters.Transfer(userAddress, null);
+    const latestBlock = await provider.getBlockNumber();
+    const fromBlock = Math.max(0, latestBlock - 100000);
+
+    const logs = await usdc.queryFilter(filter, fromBlock, 'latest');
+
+    const hiredSet = new Set();
+    const hires = [];
+
+    for (const log of logs) {
+      const toAddr = log.args.to.toLowerCase();
+      if (walletToAgent[toAddr] && !hiredSet.has(toAddr)) {
+        hiredSet.add(toAddr);
+        const agent = { ...walletToAgent[toAddr] };
+        try { agent.skills = JSON.parse(agent.skills || '[]'); } catch { agent.skills = []; }
+        try { agent.domains = JSON.parse(agent.domains || '[]'); } catch { agent.domains = []; }
+        try { agent.trustModels = JSON.parse(agent.trustModels || '[]'); } catch { agent.trustModels = []; }
+        hires.push({
+          ...agent,
+          paymentAmount: Number(log.args.value) / 1e6,
+          paymentTxHash: log.transactionHash,
+        });
+      }
+    }
+
+    return res.json({ hires });
+  } catch (e) {
+    console.error('Hires query error:', e.message);
     return res.status(500).json({ error: e.message });
   }
 });
