@@ -34,6 +34,26 @@ function verifySig(message, signature, expectedAddress) {
   }
 }
 
+/**
+ * Dual-mode auth: ERC-8128 headers (via middleware) OR legacy message+signature body params.
+ * Returns the verified address or null.
+ */
+function getVerifiedAddress(req, expectedAddress) {
+  // ERC-8128 mode: middleware already verified and attached the address
+  if (req.verifiedAddress) {
+    if (!expectedAddress || req.verifiedAddress.toLowerCase() === expectedAddress.toLowerCase()) {
+      return req.verifiedAddress;
+    }
+    return null;
+  }
+  // Legacy mode: verify message+signature from body
+  const { message, signature } = req.body || {};
+  if (message && signature && expectedAddress && verifySig(message, signature, expectedAddress)) {
+    return expectedAddress;
+  }
+  return null;
+}
+
 function isAdmin(address) {
   return ADMIN_WALLET && address.toLowerCase() === ADMIN_WALLET;
 }
@@ -293,15 +313,16 @@ router.post('/events', async (req, res) => {
 
   const { title, category, description, entryFee, maxParticipants, prompts, registrationDeadline, battleStart, battleEnd, createdBy, message, signature } = req.body;
 
-  if (!title || !category || !entryFee || !prompts || !createdBy || !message || !signature) {
-    return res.status(400).json({ error: 'title, category, entryFee, prompts, createdBy, message, and signature required' });
+  if (!title || !category || !entryFee || !prompts || !createdBy) {
+    return res.status(400).json({ error: 'title, category, entryFee, prompts, and createdBy required' });
   }
 
-  if (!verifySig(message, signature, createdBy)) {
+  const verifiedCreator = getVerifiedAddress(req, createdBy);
+  if (!verifiedCreator) {
     return res.status(401).json({ error: 'Invalid signature' });
   }
 
-  if (!isAdmin(createdBy)) {
+  if (!isAdmin(verifiedCreator)) {
     return res.status(403).json({ error: 'Only admin can create events' });
   }
 
@@ -353,11 +374,12 @@ router.post('/events/:id/register', async (req, res) => {
   const { agentId, network, name, ownerAddress, endpoint, paymentTxHash, message, signature } = req.body;
   const eventId = req.params.id;
 
-  if (!agentId || !network || !name || !ownerAddress || !paymentTxHash || !message || !signature) {
-    return res.status(400).json({ error: 'agentId, network, name, ownerAddress, paymentTxHash, message, and signature required' });
+  if (!agentId || !network || !name || !ownerAddress || !paymentTxHash) {
+    return res.status(400).json({ error: 'agentId, network, name, ownerAddress, and paymentTxHash required' });
   }
 
-  if (!verifySig(message, signature, ownerAddress)) {
+  const verifiedOwner = getVerifiedAddress(req, ownerAddress);
+  if (!verifiedOwner) {
     return res.status(401).json({ error: 'Invalid signature' });
   }
 
@@ -410,12 +432,13 @@ router.post('/events/:id/register', async (req, res) => {
 router.post('/events/:id/status', async (req, res) => {
   if (!redis) return res.status(503).json({ error: 'Redis not configured' });
 
-  const { status, createdBy, message, signature } = req.body;
+  const { status, createdBy } = req.body;
 
-  if (!verifySig(message, signature, createdBy)) {
+  const verifiedAdmin = getVerifiedAddress(req, createdBy);
+  if (!verifiedAdmin) {
     return res.status(401).json({ error: 'Invalid signature' });
   }
-  if (!isAdmin(createdBy)) {
+  if (!isAdmin(verifiedAdmin)) {
     return res.status(403).json({ error: 'Only admin can update event status' });
   }
 
@@ -439,11 +462,12 @@ router.post('/events/:id/vote', async (req, res) => {
   const { voter, agentKey, message, signature } = req.body; // agentKey = "network:agentId"
   const eventId = req.params.id;
 
-  if (!voter || !agentKey || !message || !signature) {
-    return res.status(400).json({ error: 'voter, agentKey, message, and signature required' });
+  if (!voter || !agentKey) {
+    return res.status(400).json({ error: 'voter and agentKey required' });
   }
 
-  if (!verifySig(message, signature, voter)) {
+  const verifiedVoter = getVerifiedAddress(req, voter);
+  if (!verifiedVoter) {
     return res.status(401).json({ error: 'Invalid signature' });
   }
 
@@ -486,12 +510,13 @@ router.post('/events/:id/vote', async (req, res) => {
 router.post('/events/:id/judge', async (req, res) => {
   if (!redis) return res.status(503).json({ error: 'Redis not configured' });
 
-  const { createdBy, message, signature } = req.body;
+  const { createdBy } = req.body;
 
-  if (!verifySig(message, signature, createdBy)) {
+  const verifiedJudge = getVerifiedAddress(req, createdBy);
+  if (!verifiedJudge) {
     return res.status(401).json({ error: 'Invalid signature' });
   }
-  if (!isAdmin(createdBy)) {
+  if (!isAdmin(verifiedJudge)) {
     return res.status(403).json({ error: 'Only admin can trigger judging' });
   }
 
@@ -588,12 +613,13 @@ router.post('/events/:id/judge', async (req, res) => {
 router.post('/events/:id/distribute', async (req, res) => {
   if (!redis) return res.status(503).json({ error: 'Redis not configured' });
 
-  const { createdBy, message, signature } = req.body;
+  const { createdBy } = req.body;
 
-  if (!verifySig(message, signature, createdBy)) {
+  const verifiedDistributor = getVerifiedAddress(req, createdBy);
+  if (!verifiedDistributor) {
     return res.status(401).json({ error: 'Invalid signature' });
   }
-  if (!isAdmin(createdBy)) {
+  if (!isAdmin(verifiedDistributor)) {
     return res.status(403).json({ error: 'Only admin can distribute prizes' });
   }
 

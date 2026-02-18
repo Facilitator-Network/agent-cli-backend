@@ -17,6 +17,8 @@ import nftRoutes from './routes/nft.js';
 import circleRoutes from './routes/circle.js';
 import bridgeRoutes from './routes/bridge.js';
 import arenaRoutes from './routes/arena.js';
+import verifyRoutes from './routes/verify.js';
+import { erc8128Optional } from './middleware/erc8128Auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +43,9 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// ERC-8128: verify signed HTTP requests when headers are present
+app.use(erc8128Optional);
+
 app.use('/api/privy', privyRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/payment', paymentRoutes);
@@ -54,6 +59,7 @@ app.use('/api/nft', nftRoutes);
 app.use('/api/circle', circleRoutes);
 app.use('/api/bridge', bridgeRoutes);
 app.use('/api/arena', arenaRoutes);
+app.use('/api/verify', verifyRoutes);
 
 // Serve browser signing page
 app.get('/sign/:sessionId', (_req, res) => {
