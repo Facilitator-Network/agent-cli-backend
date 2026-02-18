@@ -18,6 +18,8 @@ import circleRoutes from './routes/circle.js';
 import bridgeRoutes from './routes/bridge.js';
 import arenaRoutes from './routes/arena.js';
 import verifyRoutes from './routes/verify.js';
+import hireRoutes from './routes/hire.js';
+import workspaceRoutes from './routes/workspace.js';
 import { erc8128Optional } from './middleware/erc8128Auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,7 +29,7 @@ const PORT = process.env.PORT || 4000;
 
 app.set('trust proxy', 1);
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '10mb' }));
 
 app.use((_req, res, next) => {
   res.set('X-8004agent-API', '1');
@@ -60,6 +62,8 @@ app.use('/api/circle', circleRoutes);
 app.use('/api/bridge', bridgeRoutes);
 app.use('/api/arena', arenaRoutes);
 app.use('/api/verify', verifyRoutes);
+app.use('/api/hire', hireRoutes);
+app.use('/api/workspace', workspaceRoutes);
 
 // Serve browser signing page
 app.get('/sign/:sessionId', (_req, res) => {
