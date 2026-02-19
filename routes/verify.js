@@ -21,12 +21,17 @@ const router = Router();
 // Cache TTL: 1 hour
 const CACHE_TTL = 3600;
 
-// ---- POST /verify/:network/:agentId → Trigger verification ----
+// ---- POST /verify/:network/:agentId → Trigger verification (owner only) ----
 router.post('/:network/:agentId', async (req, res) => {
   const { network, agentId } = req.params;
 
   if (!CONTRACTS[network]) {
     return res.status(400).json({ error: `Unknown network: ${network}` });
+  }
+
+  // Ownership check: require ERC-8128 signed request
+  if (!req.verifiedAddress) {
+    return res.status(401).json({ error: 'Signed request required to verify an agent' });
   }
 
   try {
@@ -36,12 +41,20 @@ router.post('/:network/:agentId', async (req, res) => {
       agent = await redis.hgetall(`agent:${network}:${agentId}`);
     }
 
-    const agentUrl = agent?.url || agent?.mcpEndpoint || agent?.a2aEndpoint || '';
     const ownerAddress = agent?.ownerAddress || '';
+
+    // Verify caller is the agent owner
+    if (!ownerAddress || req.verifiedAddress.toLowerCase() !== ownerAddress.toLowerCase()) {
+      return res.status(403).json({ error: 'Only the agent owner can trigger verification' });
+    }
 
     // Run all 3 checkers in parallel
     const [wavResult, wvResult, etvResult] = await Promise.all([
-      checkWebAvailability(agentUrl),
+      checkWebAvailability({
+        url: agent?.url || '',
+        mcpEndpoint: agent?.mcpEndpoint || '',
+        a2aEndpoint: agent?.a2aEndpoint || '',
+      }),
       checkWalletVerification(ownerAddress, network),
       checkOnChainTransaction(agentId, network),
     ]);

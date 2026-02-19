@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import redis from '../lib/redis.js';
+import { RELAYER_ADDRESS } from '../lib/constants.js';
 
 const router = Router();
 
@@ -32,7 +33,7 @@ router.get('/plans/:network/:agentId', async (req, res) => {
       return res.json({ free: true, plans: null });
     }
 
-    return res.json({ free: false, plans: computePlans(perCallPrice), perCallPrice });
+    return res.json({ free: false, plans: computePlans(perCallPrice), perCallPrice, relayerAddress: RELAYER_ADDRESS || '' });
   } catch (e) {
     console.error('Plans error:', e.message);
     return res.status(500).json({ error: e.message });
@@ -46,6 +47,7 @@ router.post('/', async (req, res) => {
   const {
     network, agentId, buyerAddress, plan, paymentTxHash,
     callsTotal, daysValid, pricePaid,
+    paymentChain, bridgeId,
   } = req.body;
 
   if (!network || !agentId || !buyerAddress || !plan || !paymentTxHash) {
@@ -68,6 +70,8 @@ router.post('/', async (req, res) => {
       daysValid: Number(daysValid) || 1,
       pricePaid: String(pricePaid || '0'),
       paymentTxHash,
+      paymentChain: paymentChain || network || 'fuji',
+      bridgeId: bridgeId || '',
       status: 'active',
       createdAt: now.toISOString(),
       expiresAt: expiresAt.toISOString(),
